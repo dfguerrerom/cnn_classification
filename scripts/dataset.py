@@ -116,7 +116,7 @@ class PlanetDataSet(VisionDataset):
             tensor = scripts.normalize_mean_std(tensor)
             return tensor
     
-    def plot(self, index, rgb=[3,2,1], display=True):
+    def plot(self, index, rgb=[2,1,0], display=True):
         """Get image from index and plot it using rgb combination"""
         
         sample = self.__getitem__(index)
@@ -126,7 +126,7 @@ class PlanetDataSet(VisionDataset):
         # Permute them to be displayed by matplot
         normalized_img = normalized_img.permute(1,2,0)
         # Combine bands in the given rgb order
-        normalized_img = normalized_img[..., rgb]
+        normalized_img = normalized_img[..., rgb].cpu().detach()
 
         if not display: return normalized_img
         

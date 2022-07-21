@@ -7,15 +7,15 @@ import torch
 from torch.autograd import Variable
 from tqdm.auto import tqdm
 
-from .model import loss_fn, model, optimizer, optimizer_name, loss_fn_name, scheduler
-from .scripts import save_model
-from .meters import AverageMeter
+from .model import loss_fn, model, optimizer, optimizer_name, loss_fn_name, scheduler, device
+from .scripts import get_model_path
 
-device = "cuda" if torch.cuda.is_available() else "cpu"
+
+
 
 # Function to test the model with the test dataset and print the 
 # accuracy for the test images
-def test_accuracy(model, test_loader):
+def test_accuracy(model, test_loader, acc_writer, epoch):
     
     model.eval()
     accuracy = 0.0
@@ -32,12 +32,13 @@ def test_accuracy(model, test_loader):
             accuracy += (predicted == labels.squeeze()).sum().item()
     
     # compute the accuracy over all test images
-    accuracy = (100 * accuracy / total)
-    print(f"accuracy: {accuracy}")
+    acc_writer.update((100 * accuracy / total), epoch)
 
-def train_one_epoch(train_loader, train_loss, epoch):
+def train_one_epoch(model, train_loader, train_writer, epoch):
     """Train the training dataloader for one epoch. It will return the average
     loss to the epoch."""
+    
+    model.train(True)
     
     for i, sample in enumerate(tqdm(train_loader, leave=False)):
 
@@ -46,7 +47,6 @@ def train_one_epoch(train_loader, train_loss, epoch):
         labels = sample["label"].squeeze()
 
         optimizer.zero_grad()
-
         outputs = model(images)
 
         loss = loss_fn(outputs, labels)
@@ -55,13 +55,43 @@ def train_one_epoch(train_loader, train_loss, epoch):
         optimizer.step()
 
         # Gather data and report
-        train_loss.update(loss.item(), epoch, images.size(0),)
+        train_writer.update(loss.item(), epoch, images.size(0),)
+        
+def validate(model, val_loader, val_writer, epoch):
+    
+    model.train(False)
+    model.eval()
+
+    for i, sample in enumerate(tqdm(val_loader)):
+
+        vimages = sample["image"]
+        vlabels = sample["label"].squeeze()
+
+        voutputs = model(vimages)
+        vloss = loss_fn(voutputs, vlabels)
+
+        val_writer.update(vloss.item(), epoch, vimages.size(0), )
+
         
 
-def train(model, num_epochs, train_loader, val_loader, suffix):
+def train(
+    model, 
+    num_epochs, 
+    train_loader, 
+    val_loader, 
+    suffix,
+    train_writer,
+    val_writer,
+    acc_writer,
+):
+    
+    timestr = time.strftime("%Y%m%d-%H%M")
     
     # Create a random model identificator
     model_id = random.randint(999,9999)
+    model_path = get_model_path(
+        timestr, model_id, optimizer_name, loss_fn_name, suffix
+    )
     
     loaders = {
         "train" : train_loader,
@@ -71,45 +101,30 @@ def train(model, num_epochs, train_loader, val_loader, suffix):
     best_vloss = 1_000_000.
     best_accuracy = 0.0
 
-    # Define your execution device
-    print("The model will be running on", device, "device")
-    # Convert model parameters and buffers to CPU or Cuda
-    model.to(device)
+    print("The model will be running on", device, "device")    
     
-    train_loss = AverageMeter('Train loss', len(train_loader), model_id, suff="train")
-    val_loss = AverageMeter('Validation loss', len(val_loader), model_id, suff="val")
-
     for epoch in range(num_epochs):
         
-        model.train(True)
-        avg_loss = train_one_epoch(loaders["train"], train_loss, epoch)
+        
+        train_one_epoch(model, loaders["train"], train_writer, epoch)
 
-        model.train(False)
-        model.eval()
+        validate(model, loaders["val"], val_writer, epoch)
         
-        for i, sample in enumerate(tqdm(loaders["val"])):
-            
-            vimages = sample["image"]
-            vlabels = sample["label"].squeeze()
-            
-            voutputs = model(vimages)
-            vloss = loss_fn(voutputs, vlabels)
-            
-            val_loss.update(vloss.item(), epoch, vimages.size(0), )
-                    
-        test_accuracy(model, loaders["val"])
-        
-        print(train_loss.summary())
-        print(val_loss.summary())
-        
-        train_loss.save()
-        val_loss.save()
+        test_accuracy(model, loaders["val"], acc_writer, epoch)
+
+        train_writer.save(model_path.stem)
+        val_writer.save(model_path.stem)
+        acc_writer.save(model_path.stem)
 
         # Track best performance, and save the model's state
-        if val_loss.avg < best_vloss:
+        if val_writer.avg < best_vloss:
 
-            best_vloss = val_loss.avg
-            save_model(model, model_id, optimizer_name, loss_fn_name, suffix)
+            best_vloss = val_writer.avg
+                        
+            print(f"Saving model...{model_path.stem}")
+            torch.save(model.state_dict(), model_path)
             
         print("lr", optimizer.param_groups[0]["lr"])
         scheduler.step()
+        
+        train_writer.plot_metrics()

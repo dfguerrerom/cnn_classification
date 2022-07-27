@@ -2,47 +2,120 @@ import torch
 import torch.nn as nn
 from torch.optim import Adam, lr_scheduler
 from torchvision import models
+import torch.optim as optim
+
+from config.settings import settings
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
-def get_model(output_size, fixed_feature=False,):
-    """get corresponding pretrained model. Either fixed_feature or fine_tune"""
+MODELS = {
+    "resnet34" : models.resnet34(pretrained=True),
+    "dpn92" : torch.hub.load('rwightman/pytorch-dpn-pretrained', 'dpn68', pretrained=True),
+    "dpn131": torch.hub.load('rwightman/pytorch-dpn-pretrained', 'dpn131', pretrained=True),
+}
+
+def get_model(model_name, output_size, fixed_feature=False,):
+    """get corresponding pretrained model. Either fixed_feature or fine_tune
     
-    model = models.resnet34(pretrained=True)
-    num_ftrs = model.fc.in_features
+    output_size: is the number of the output classes
+    """
+    
+    model = MODELS[model_name]
+    
+    # when the model is dpn, it will return a tuple
+    model = next(iter(model)) if isinstance(model, (tuple, list)) else model
+    
+    # Get the last layer name
+    fc_layer_name = list(model.named_modules())[-1][0]
+    fc_layer = getattr(model, fc_layer_name)
+    
+    # Get the input number of features
+    # in_features when using resnet, in_cahnels when using dpn 
+    num_ftrs = getattr(fc_layer, "in_features", None) or getattr(fc_layer, "in_channels")
 
     if fixed_feature:
-        # ConvNet as fixed feature extractor
+        # fixed feature extractor
         _=[setattr(param, "require_grad", False) for param in model.parameters()]
     
-    model.fc = nn.Linear(num_ftrs, output_size)
+    if "resnet" in model_name:
+        last_layer = nn.Linear(num_ftrs, output_size)
+    else:
+        last_layer = nn.Conv2d(num_ftrs, output_size, kernel_size=1, bias=True)
+    
+    # Let's add the last layer to the model
+    setattr(model, fc_layer_name, last_layer)
     
     return model
 
 
-model = get_model(6, fixed_feature=False)
-model.to(device)
+def get_optimizer(name, model, **kwargs ):
+    """Returns the optimizer based on the input name and specific args"""
+    
+    if name == "Adam":
+        
+        lr = kwargs.get("lr")
+        weight_decay = kwargs.get("weight_decay")
+        return Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
+    
+    elif name == "SDG":
+        
+        lr = kwargs.get("lr")
+        momentum = kwargs.get("momentum")
+        return optim.SGD(model.parameters(), lr=lr, momentum=momentum)
 
+def get_scheduler(name, optimizer, **kwargs):
+    """Returns the scheduler based on the input name and specific args"""
+    
+    if name == "LambdaLR":
+        
+        lr_lambda= kwargs.get("lr_lambda")
+        return lr_scheduler.LambdaLR(optimizer, lr_lambda=lr_lambda)
+    
+    elif name == "StepLR":
+        
+        step_size= kwargs.get("step_size")
+        gamma= kwargs.get("gamma")
+        return lr_scheduler.StepLR(optimizer, step_size=step_size, gamma=gamma)
 
-# Define the loss function with Classification Cross-Entropy loss and an optimizer
-# with Adam optimizer
-
-optimizers = {
-    "Adam" : Adam(model.parameters(), lr=0.1, weight_decay=0.0001)
-}
 loss_fns = {
     "CrossEntropy" : nn.CrossEntropyLoss(),
     "MSELoss" : nn.MSELoss(),
 }
 
-optimizer_name = "Adam"
-loss_fn_name = "CrossEntropy"
-
-optimizer = optimizers[optimizer_name]
-loss_fn = loss_fns[loss_fn_name]
-
-
-lambda1 = lambda epoch: 0.65 ** epoch
-scheduler = lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda1)
-
-
+def get_settings(test_name):
+    """Return the variables to be used in the training step based on some
+    predefined model settings"""
+    
+    setting = settings[test_name]
+    model_name = setting.model.name
+    
+    model = get_model(
+        model_name = model_name,
+        output_size = setting.model.out_features,
+        fixed_feature = setting.model.fixed_feature
+    )
+    
+    model.to(device)
+    
+    optimizer = get_optimizer(
+        name = setting.optimizer.name,
+        model = model,
+        lr = setting.optimizer.lr,
+        weight_decay = getattr(setting.optimizer, "weight_decay", None),
+        momentum = getattr(setting.optimizer, "momentum", None),
+    )
+    
+    scheduler = get_scheduler(
+        setting.scheduler.name, 
+        optimizer, 
+        step_size = setting.scheduler.get("step_size"),
+        gamma = setting.scheduler.get("gamma"),
+        lr_lambda = setting.scheduler.get("lr_lambda"),
+    )
+    
+    loss_fn = loss_fns[setting.loss_fn.name]
+    variable = setting.dataset.variable
+    batch_size = setting.batch_size
+    rescale_factor = setting.rescale_factor
+    
+    return model, model_name, optimizer, loss_fn, scheduler, variable, batch_size, rescale_factor

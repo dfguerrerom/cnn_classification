@@ -140,7 +140,7 @@ class PlanetDataSet(VisionDataset):
         
         return fig.show()
     
-    def plot_tags(self):
+    def plot_tags(self, size=20):
         """Plot all tags and images within the dataset"""
         
         tags, _ = self.get_tags()
@@ -148,7 +148,7 @@ class PlanetDataSet(VisionDataset):
         
         n_cols = min(len(tags), 4)
         
-        fig, axes = plt.subplots(len(tags)//n_cols+1, n_cols, figsize=(20, 20))
+        fig, axes = plt.subplots(len(tags)//n_cols+1, n_cols, figsize=(size, size))
         
         for idx, tag in enumerate(tags):
             

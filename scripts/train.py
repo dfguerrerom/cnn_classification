@@ -12,7 +12,7 @@ from scripts.model import get_settings
 
 
 
-def train_one_epoch(model, optimizer, loss_fn, train_loader, train_writer, epoch):
+def train_one_epoch(model, optimizer, loss_fn, train_loader, writer, epoch):
     """Train the training dataloader for one epoch. It will return the average
     loss to the epoch."""
     
@@ -38,9 +38,9 @@ def train_one_epoch(model, optimizer, loss_fn, train_loader, train_writer, epoch
         total += images.size(0)
         running_loss += loss.item() * images.size(0)
         
-    writer.update("training", running_loss / total, epoch)
+    writer.update("loss_train", running_loss / total, epoch)
         
-def validate(model, loss_fn, val_loader, val_writer, epoch):
+def validate(model, loss_fn, val_loader, writer, epoch):
     
     model.train(False)
     model.eval()
@@ -60,7 +60,7 @@ def validate(model, loss_fn, val_loader, val_writer, epoch):
         total += vimages.size(0)
         running_loss += vloss.item() * vimages.size(0)
     
-    writer.update("validation", running_loss / total, epoch)
+    writer.update("loss_val", running_loss / total, epoch)
         
 def test_accuracy(model, test_loader, writer, epoch):
     
@@ -79,7 +79,7 @@ def test_accuracy(model, test_loader, writer, epoch):
             accuracy += (predicted == labels.squeeze()).sum().item()
 
     # compute the accuracy over all test images
-    writer.update("accuracy",  accuracy / total, epoch)
+    writer.update("accuracy",  100*(accuracy / total), epoch)
 
 def train(
     TEST_NAME,
@@ -121,16 +121,20 @@ def train(
         test_accuracy(model, loaders["val"], writer, epoch)
 
         writer.save(model_path.stem)
+        writer.update_plot()
 
         # Track best performance, and save the model's state
-        if val_writer.avg < best_vloss:
+        #  Get the current epoch validation loss
+        
+        current_val_loss = writer.last_metric("loss_val")
+        
+        if current_val_loss < best_vloss:
 
-            best_vloss = val_writer.avg
+            best_vloss = current_val_loss
                         
             print(f"Saving model...{model_path.stem}")
             torch.save(model.state_dict(), model_path)
             
         print("lr", optimizer.param_groups[0]["lr"])
-        scheduler.step()
         
-        train_writer.plot_metrics()
+        scheduler.step()

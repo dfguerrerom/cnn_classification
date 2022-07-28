@@ -1,99 +1,106 @@
+from box import Box
+from plotly import graph_objects as go
+from plotly.subplots import make_subplots
+
 import pandas as pd
 from pathlib import Path
-import torch.distributed as dist
-import torch
-from enum import Enum
-import time
 from config import conf
-import json
-
-class Summary(Enum):
-    NONE = 0
-    AVERAGE = 1
-    SUM = 2
-    COUNT = 3
 
 class Writer:
-    """Computes and stores the average and current value"""
     
-    def __init__(self, name, fmt=':.4e', summary_type=Summary.AVERAGE):
-        
-        self.name = name
-        self.fmt = fmt
-        self.summary_type = summary_type
-        self.reset()
-
-    def reset(self):
-        self.val = 0
-        self.avg = 0
-        self.sum = 0
-        self.count = 0
-        self.current_batch = 0
+    METRICS = Box({
+        "loss_train" : {
+            "row": 1,
+            "col":1,
+        },
+        "loss_val" : {
+            "row": 1,
+            "col": 1,
+        },
+        "accuracy" : {
+            "row": 1,
+            "col":2,
+        }
+    })
     
-    def update(self, val, epoch, n=1, ):
+    def __init__(self):
         
-        self.epoch = epoch
-        self.val = val
-        self.sum += val * n
-        self.count += n
-        self.avg = self.sum / self.count
-
-    def all_reduce(self):
-        total = torch.FloatTensor([self.sum, self.count])
-        dist.all_reduce(total, dist.ReduceOp.SUM, async_op=False)
-        self.sum, self.count = total.tolist()
-        self.avg = self.sum / self.count
+        self.data_df = pd.DataFrame(data={
+            "metric" : [],
+            "epoch" : [],
+            "value" : [],
+        })
+        
+   
+    def update(self, metric, val, epoch, ):
+        """Adds each final epoch metric to the writer dataframe"""
+        
+        # TODO: Not only store the last epoch value,
+        # we could also add each batch progress, and so display the info
+        # every single batch improve.
+        # Metrics has to be calculated in the epoch loop
+        
+        if not metric in self.METRICS:
+            raise ValueError(f"Only {self.METRICS.keys()} are accepted.")
+        
+        new_data_df = pd.DataFrame(
+            data={
+                "metric":[metric],
+                "epoch":[epoch],
+                "value":[val],
+            }
+        )
+        self.data_df = pd.concat([self.data_df, new_data_df])
 
     def __str__(self):
-        fmtstr = '{name} {val' + self.fmt + '} ({avg' + self.fmt + '})'
-        return fmtstr.format(**self.__dict__)
+        """Calls summary and print metrics from the last epoch"""
+        return self.data_df
     
     def summary(self):
-        fmtstr = ''
-        if self.summary_type is Summary.NONE:
-            fmtstr = ''
-        elif self.summary_type is Summary.AVERAGE:
-            fmtstr = 'Epoch: {epoch} {name} {avg:.3f} '
-        elif self.summary_type is Summary.SUM:
-            fmtstr = '{name} {sum:.3f}'
-        elif self.summary_type is Summary.COUNT:
-            fmtstr = '{name} {count:.3f}'
-        else:
-            raise ValueError('invalid summary type %r' % self.summary_type)
+        """Create a summary output and replace previously created one"""
         
-        return fmtstr.format(**self.__dict__)
     
     def save(self, model_name):
+        """Save current status of the dataframe"""
         
-        self.file = conf.out_history/f"Model_{model_name}_LOSS.txt"
-        print(self.summary())
-        with open(self.file, "a") as f:
-            f.write(json.dumps(self.summary()))
-            f.write("\n")
-            
-    def plot_metrics(self, file_path=None,):
-        """Create a graph with the metrics caputred in the file"""
+        self.file = conf.out_history/f"Model_{model_name}_LOSS.csv"
+        self.data_df.to_csv(self.file)
+    
+    def plot(self, ):
+        """Create subplots to display and update each metric graphs"""
         
-        metrics = ["Train loss", "Validation loss", "Accuracy"]
-        results = {}
-        
-        file_src = file_path or Path(self.file)
+        self.fig = go.FigureWidget(
+            make_subplots(rows=1, cols=2, subplot_titles=("Loss", "Accuracy"))
+        )
 
-        with open(file_src, "r") as file:
-            for line in file.readlines():
-
-                epoch = line.split()[1]
-                name = next(iter([metric for metric in metrics if metric in line]))
-                value = line.split()[-2]
-
-                if epoch in results:
-                    results[epoch].append(value)
-                else:
-                    results[epoch] = [value]
-                    
-        results_df = pd.DataFrame.from_dict(results, orient="index", columns=metrics,)
-        results_df = results_df.astype(float)
-        results_df.iloc[:, :2].plot()
-        results_df.iloc[:, 2:].plot()
+        [self.fig.add_trace(
+                go.Scatter(name=k), 
+                row=v.row, 
+                col=v.col
+            )for k, v in self.METRICS.items()];
         
-        return results_df
+        self.fig.update_layout(title_text="Metrics")
+        
+        return self.fig
+        
+    def update_plot(self, ):
+        """Update each subplot based on the current dataframe status"""
+        
+        def get_metric(metric):
+            return self.data_df[self.data_df.metric==metric].sort_values(by=["epoch"])
+        
+        metrics = ["loss_train", "loss_val", "accuracy"]
+        
+        [self.fig.update_traces(
+            x=get_metric(metric)["epoch"], 
+            y=get_metric(metric)["value"], 
+            selector=dict(name=metric)
+        ) for metric in self.METRICS];
+        
+    def last_metric(self, metric_name):
+        """Returns last metric (last epoch) value from the data dataframe"""
+        
+        return (
+            self.data_df[self.data_df.metric == metric_name]
+                .sort_values(by=["epoch"], ascending=False)["value"].iloc[0]
+        )

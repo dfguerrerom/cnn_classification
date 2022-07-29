@@ -77,6 +77,32 @@ settings = Box({
         }
     },
     "test_4" : {
+        "description":"We are using an rgb combination [2,1,0]",
+        "dataset" : {
+            "variable" : "lc_tags" 
+        },
+        "batch_size": 128, 
+        "rescale_factor": 32,
+        "model": {
+            "name" : "resnet34",
+            "transfer": True,
+            "fixed_feature": False, # If not fixed feature is fine tune but if transfer true
+            "out_features": 6,
+        },
+        "optimizer": {
+            "name": "Adam",
+            "lr" : 0.01,
+            "weight_decay":0.0001
+        },
+        "loss_fn" : {
+            "name": "CrossEntropy",
+        },
+        "scheduler" : {
+            "name" : "LambdaLR",
+            "lr_lambda" : lambda epoch: 0.65 ** epoch
+        }
+    },
+    "mnist" : {
         "dataset" : {
             "variable" : "lc_tags" 
         },
@@ -85,7 +111,7 @@ settings = Box({
         "model": {
             "name" : "resnet34",
             "fixed_feature": True,
-            "out_features": 6,
+            "out_features": 10,
         },
         "optimizer": {
             "name": "Adam",

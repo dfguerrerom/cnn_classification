@@ -112,7 +112,7 @@ class PlanetDataSet(VisionDataset):
         
         with rio.open(image_path, "r") as src:
             array = src.read()
-            tensor = torch.from_numpy(array[1:,...]).to(device)
+            tensor = torch.from_numpy(array[[2,1,0],...]).to(device)
             tensor = scripts.normalize_mean_std(tensor)
             return tensor
     

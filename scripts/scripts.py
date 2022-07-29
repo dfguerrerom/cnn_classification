@@ -1,9 +1,9 @@
-import time
 from pathlib import Path
 
 import torch
 
 from config import conf
+from config.settings import settings
 
 
 def normalize_tensor(x):
@@ -32,10 +32,22 @@ def normalize_mean_std(x):
     
     return (x - mean) / std
 
-def save_model(model, model_id, optimizer_name, loss_fn_name, suffix):
-    """Creates """
-    timestr = time.strftime("%Y%m%d-%H%M")
-    path = Path(conf.out_model_path/f"Resnet18_{model_id}_{timestr}_{optimizer_name}_{loss_fn_name}_{suffix}")
-    torch.save(model.state_dict(), path)
+def get_model_path(TEST_NAME, model_id, timestr):
+    """Creates a model path based on the model settings."""
     
-    print(f"Saving model...{path.stem}")
+    setting = settings[TEST_NAME]
+    
+    model_name = setting.model.name
+    optimizer_name = setting.optimizer.name
+    loss_fn_name = setting.loss_fn.name
+    transfer_l = None
+    
+    if setting.model.transfer:
+        # if there is fixed_Feature will return string fixed feature, else will fallback to fine_tune
+        transfer_l = (setting.model.get("fixed_feature") and "fixed_feature") or "fine_tune"
+    
+    path = Path(
+        conf.out_model_path/f"{model_name}_{model_id}_{timestr}_{optimizer_name}_{loss_fn_name}_{transfer_l}"
+    )
+    
+    return path

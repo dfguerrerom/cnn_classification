@@ -26,10 +26,10 @@ def train_one_epoch(model, optimizer, loss_fn, train_loader, writer, epoch):
         # get the inputs
         images = sample["image"]
         labels = sample["label"].squeeze()
-
+        
         optimizer.zero_grad()
         outputs = model(images)
-
+        
         loss = loss_fn(outputs, labels)
         loss.backward()
 
@@ -53,7 +53,7 @@ def validate(model, loss_fn, val_loader, writer, epoch):
 
         vimages = sample["image"]
         vlabels = sample["label"].squeeze()
-
+                
         voutputs = model(vimages)
         vloss = loss_fn(voutputs, vlabels)
         
@@ -70,7 +70,9 @@ def test_accuracy(model, test_loader, writer, epoch):
     
     with torch.no_grad():
         for _,sample in enumerate(tqdm(test_loader, leave=False)):
+            
             images, labels = sample.values()
+                        
             # run the model on the test set to predict labels
             outputs = model(images)
             # the label with the highest energy will be our prediction
@@ -86,7 +88,6 @@ def train(
     num_epochs, 
     train_loader, 
     val_loader, 
-    suffix,
     writer,
 ):
 
@@ -98,14 +99,18 @@ def train(
         scheduler,
         variable, 
         batch_size, 
-        rescale_factor
+        rescale_factor,
+        metadata
     ) = get_settings(TEST_NAME)
     
-    timestr = time.strftime("%Y%m%d-%H%M")
+    print(metadata)
+    
+    timestr = time.strftime("%Y%m%d")
     
     # Create a random model identificator
     model_id = random.randint(999,9999)
-    model_path = get_model_path(TEST_NAME, model_id, timestr, suffix)
+    model_path = get_model_path(TEST_NAME, model_id, timestr)
+    writer.model_name = model_path.name
     
     loaders = {
         "train" : train_loader,
@@ -119,22 +124,16 @@ def train(
         train_one_epoch(model, optimizer, loss_fn, loaders["train"], writer, epoch)
         validate(model, loss_fn, loaders["val"], writer, epoch)
         test_accuracy(model, loaders["val"], writer, epoch)
-
-        writer.save(model_path.stem)
+        
+        writer.update("lr", 0 or optimizer.param_groups[0]["lr"], epoch)
+        writer.save(model_path.stem, metadata)
         writer.update_plot()
-
-        # Track best performance, and save the model's state
-        #  Get the current epoch validation loss
         
         current_val_loss = writer.last_metric("loss_val")
         
         if current_val_loss < best_vloss:
 
-            best_vloss = current_val_loss
-                        
-            print(f"Saving model...{model_path.stem}")
+            best_vloss = current_val_loss                        
             torch.save(model.state_dict(), model_path)
             
-        print("lr", optimizer.param_groups[0]["lr"])
-        
         scheduler.step()

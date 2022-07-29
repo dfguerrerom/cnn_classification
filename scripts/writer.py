@@ -20,7 +20,11 @@ class Writer:
         "accuracy" : {
             "row": 1,
             "col":2,
-        }
+        },
+        "lr" : {
+            "row": 1,
+            "col":3,
+        },
     })
     
     def __init__(self):
@@ -30,6 +34,8 @@ class Writer:
             "epoch" : [],
             "value" : [],
         })
+        
+        self.model_name = None
         
    
     def update(self, metric, val, epoch, ):
@@ -60,17 +66,21 @@ class Writer:
         """Create a summary output and replace previously created one"""
         
     
-    def save(self, model_name):
+    def save(self, model_name, metadata=None):
         """Save current status of the dataframe"""
         
-        self.file = conf.out_history/f"Model_{model_name}_LOSS.csv"
+        self.file = conf.out_history/f"{self.model_name}.csv"
+        if metadata:
+            with open(self.file.parent / (self.file.name+"_metadata.json"), 'w') as out:
+                out.write(metadata)
+            
         self.data_df.to_csv(self.file)
     
     def plot(self, ):
         """Create subplots to display and update each metric graphs"""
         
         self.fig = go.FigureWidget(
-            make_subplots(rows=1, cols=2, subplot_titles=("Loss", "Accuracy"))
+            make_subplots(rows=1, cols=3, subplot_titles=("Loss", "Accuracy", "LR"))
         )
 
         [self.fig.add_trace(
@@ -79,18 +89,16 @@ class Writer:
                 col=v.col
             )for k, v in self.METRICS.items()];
         
-        self.fig.update_layout(title_text="Metrics")
-        
         return self.fig
         
     def update_plot(self, ):
         """Update each subplot based on the current dataframe status"""
         
+        self.fig.update_layout(title_text=self.model_name)
+        
         def get_metric(metric):
             return self.data_df[self.data_df.metric==metric].sort_values(by=["epoch"])
-        
-        metrics = ["loss_train", "loss_val", "accuracy"]
-        
+                
         [self.fig.update_traces(
             x=get_metric(metric)["epoch"], 
             y=get_metric(metric)["value"], 
@@ -102,5 +110,6 @@ class Writer:
         
         return (
             self.data_df[self.data_df.metric == metric_name]
-                .sort_values(by=["epoch"], ascending=False)["value"].iloc[0]
+                .sort_values(by=["epoch"], ascending=False)["value"]
+                .iloc[0]
         )

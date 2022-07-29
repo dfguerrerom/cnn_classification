@@ -4,15 +4,11 @@ from torch.optim import Adam, lr_scheduler
 from torchvision import models
 import torch.optim as optim
 
-from config.settings import settings
+import config.settings as ss
+
+from importlib import reload
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
-
-MODELS = {
-    "resnet34" : models.resnet34(pretrained=True),
-    "dpn92" : torch.hub.load('rwightman/pytorch-dpn-pretrained', 'dpn68', pretrained=True),
-    "dpn131": torch.hub.load('rwightman/pytorch-dpn-pretrained', 'dpn131', pretrained=True),
-}
 
 def get_model(model_name, output_size, fixed_feature=False,):
     """get corresponding pretrained model. Either fixed_feature or fine_tune
@@ -20,7 +16,13 @@ def get_model(model_name, output_size, fixed_feature=False,):
     output_size: is the number of the output classes
     """
     
-    model = MODELS[model_name]
+    if model_name in ["dpn92", "dpn131"]:
+        model = torch.hub.load(
+            'rwightman/pytorch-dpn-pretrained', model_name, pretrained=True
+        )
+    
+    elif model_name in ["resnet34"]:
+        model = models.resnet34(pretrained=True)
     
     # when the model is dpn, it will return a tuple
     model = next(iter(model)) if isinstance(model, (tuple, list)) else model
@@ -86,6 +88,10 @@ def get_settings(test_name):
     """Return the variables to be used in the training step based on some
     predefined model settings"""
     
+    import config.settings as ss
+    ss = reload(ss)
+    settings = ss.settings
+    
     setting = settings[test_name]
     model_name = setting.model.name
     
@@ -118,4 +124,6 @@ def get_settings(test_name):
     batch_size = setting.batch_size
     rescale_factor = setting.rescale_factor
     
-    return model, model_name, optimizer, loss_fn, scheduler, variable, batch_size, rescale_factor
+    metadata = setting.to_json(default=lambda o: '<not serializable>')
+    
+    return model, model_name, optimizer, loss_fn, scheduler, variable, batch_size, rescale_factor, metadata

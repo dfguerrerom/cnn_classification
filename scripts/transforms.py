@@ -1,5 +1,5 @@
-from torchvision import transforms, utils
-from torchvision.transforms import Resize, Normalize
+from torchvision.transforms import Normalize, Resize
+
 
 class rescale:
     """Rescale the image in a sample to a given size.
@@ -15,21 +15,18 @@ class rescale:
         self.output_size = output_size
 
     def __call__(self, sample):
-        
-        image, label = sample['image'], sample['label']
-        return {'image': Resize(self.output_size)(image), 'label': label}
-    
+
+        image, label = sample["image"], sample["label"]
+        return {"image": Resize(self.output_size)(image), "label": label}
+
+
 class normalize:
-    
     def __init__(self, mean, std):
-        
+
         self.mean = mean
         self.std = std
 
     def __call__(self, sample):
-        
-        image, label = sample['image'], sample['label']
-        return {
-            'image': Normalize(mean=self.mean, std=self.std)(image), 
-            'label': label
-        }
+
+        image, label = sample["image"], sample["label"]
+        return {"image": Normalize(mean=self.mean, std=self.std)(image), "label": label}
